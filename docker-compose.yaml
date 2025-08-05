@@ -1,0 +1,30 @@
+version: "3"
+services:
+  query-exporter:
+    build: ./
+    restart: always
+    volumes:
+      - ./config.yaml:/etc/query-exporter/config.yaml
+      - ./queries:/etc/query-exporter/queries/
+    ports:
+      - "8080:8080"
+  prometheus:
+    container_name: qe_prometheus
+    image: harbor.vseinstrumenti.ru/dockerhub/prom/prometheus:v2.30.3
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./.docker/prometheus:/etc/prometheus
+      - prometheus-data:/prometheus
+    command: --web.enable-lifecycle  --config.file=/etc/prometheus/prometheus.yml
+  grafana:
+    container_name: qe_grafana
+    image: grafana/grafana-oss
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/lib/grafana
+
+volumes:
+  prometheus-data:
+  grafana-data:
