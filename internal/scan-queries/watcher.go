@@ -3,7 +3,7 @@ package scan_queries
 import (
 	"fmt"
 	"github.com/fsnotify/fsnotify"
-	"log"
+	"go.uber.org/zap"
 	"time"
 )
 
@@ -36,7 +36,7 @@ func NewWatcher(path string, debounce time.Duration) (*QueryWatcher, error) {
 }
 
 // Run запустить наблюдателя
-func (qw *QueryWatcher) Run() {
+func (qw *QueryWatcher) Run(logger *zap.Logger) {
 	for {
 		select {
 		case event, ok := <-qw.watcher.Events:
@@ -52,7 +52,7 @@ func (qw *QueryWatcher) Run() {
 			if !ok {
 				return
 			}
-			log.Printf("ошибка наблюдателя: %v", err)
+			logger.Error(fmt.Sprintf("ошибка наблюдателя: %v", err))
 		}
 	}
 }
@@ -80,10 +80,10 @@ func (qw *QueryWatcher) handleEvent() {
 }
 
 // Close закрываем наблюдателя
-func (qw *QueryWatcher) Close() {
+func (qw *QueryWatcher) Close(logger *zap.Logger) {
 	err := qw.watcher.Close()
 	if err != nil {
-		fmt.Printf("ошибка завершения наблюдателя: %v\n", err)
+		logger.Error(fmt.Sprintf("ошибка завершения наблюдателя: %v\n", err))
 
 		return
 	}

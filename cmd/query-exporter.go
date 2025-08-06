@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/Al-Sher/query-exporter/internal/config"
 	"github.com/Al-Sher/query-exporter/internal/exporter"
+	"go.uber.org/zap"
 	"os"
 	"os/signal"
 	"syscall"
@@ -26,7 +27,12 @@ func main() {
 		panic(fmt.Errorf("не вышло загрузить конфиг: %w", err))
 	}
 
-	app := exporter.NewExporter(c)
+	logger, err := zap.NewProduction()
+	if err != nil {
+		panic(fmt.Errorf("не вышло загрузить конфиг: %w", err))
+	}
+
+	app := exporter.NewExporter(c, logger)
 	app.StartServer()
 
 	quit := make(chan os.Signal, 1)

@@ -26,8 +26,11 @@ func LoadConfig(configPath string) (Config, error) {
 	}
 
 	err = yaml.Unmarshal(data, c)
+	if err != nil {
+		return *c, fmt.Errorf("не вышло распарсить файл конфигурации: %v", err)
+	}
 
-	return *c, fmt.Errorf("не вышло распарсить файл конфигурации: %w", err)
+	return *c, nil
 }
 
 // defaultConfig установка значений по умолчанию в конфиг

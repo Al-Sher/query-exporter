@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	scanqueries "github.com/Al-Sher/query-exporter/internal/scan-queries"
-	"log"
+	"go.uber.org/zap"
 	"strings"
 	"sync"
 )
@@ -12,28 +12,32 @@ import (
 // MetricCache структура кэша метрик
 type MetricCache struct {
 	sync.RWMutex
-	metrics map[string]map[string]float64
-	labels  map[string]map[string]map[string]string
+	metrics       map[string]map[string]float64
+	labels        map[string]map[string]map[string]string
+	labelNames    map[string][]string
+	changedLabels map[string]bool
 }
 
 // NewMetricCache создаем кэш метрик
 func NewMetricCache() *MetricCache {
 	return &MetricCache{
-		metrics: make(map[string]map[string]float64),
-		labels:  make(map[string]map[string]map[string]string),
+		metrics:       make(map[string]map[string]float64),
+		labels:        make(map[string]map[string]map[string]string),
+		labelNames:    make(map[string][]string),
+		changedLabels: make(map[string]bool),
 	}
 }
 
 // Store сохранить метрику в кэш
 func (mc *MetricCache) Store(metricName string, labelValues map[string]string, value float64) {
-	mc.Lock()
-	defer mc.Unlock()
-
 	labelHash := hashLabelValues(labelValues)
 
-	if _, ok := mc.metrics[metricName]; !ok {
+	expectedLabels, ok := mc.labelNames[metricName]
+	if !ok || len(expectedLabels) != len(labelValues) {
 		mc.metrics[metricName] = make(map[string]float64)
 		mc.labels[metricName] = make(map[string]map[string]string)
+		mc.labelNames[metricName] = make([]string, len(labelValues))
+		mc.changedLabels[metricName] = true
 	}
 
 	mc.metrics[metricName][labelHash] = value
@@ -41,10 +45,7 @@ func (mc *MetricCache) Store(metricName string, labelValues map[string]string, v
 }
 
 // Get получить значения метрики
-func (mc *MetricCache) Get(metricName string) (map[string]float64, map[string]map[string]string) {
-	mc.RLock()
-	defer mc.RUnlock()
-
+func (mc *MetricCache) Get(metricName string) (map[string]float64, map[string]map[string]string, bool) {
 	values := make(map[string]float64)
 	labels := make(map[string]map[string]string)
 
@@ -56,14 +57,20 @@ func (mc *MetricCache) Get(metricName string) (map[string]float64, map[string]ma
 		labels[k] = v
 	}
 
-	return values, labels
+	changedLabels := mc.changedLabels[metricName]
+	mc.changedLabels[metricName] = false
+
+	return values, labels, changedLabels
 }
 
 // UpdateMetrics обновить метрики
-func UpdateMetrics(m *MetricCache, q scanqueries.Query, rows *sql.Rows) {
+func (mc *MetricCache) UpdateMetrics(logger *zap.Logger, q scanqueries.Query, rows *sql.Rows) {
+	mc.RLock()
+	defer mc.RUnlock()
+
 	columns, err := rows.Columns()
 	if err != nil {
-		log.Fatalf("не вышло получить колонки метрики %s: %v", q.Name, err)
+		logger.Error(fmt.Sprintf("не вышло получить колонки метрики %s: %v", q.Name, err))
 		return
 	}
 
@@ -74,6 +81,11 @@ func UpdateMetrics(m *MetricCache, q scanqueries.Query, rows *sql.Rows) {
 		if lowerCol == "count" || lowerCol == "quantity" {
 			metricField = col
 		}
+	}
+
+	if metricField == "" {
+		logger.Error(fmt.Sprintf("не обнаружено значение метрики в запросе. Поддерживаются только count, quantity"))
+		return
 	}
 
 	values := make([]interface{}, len(columns))
@@ -87,7 +99,7 @@ func UpdateMetrics(m *MetricCache, q scanqueries.Query, rows *sql.Rows) {
 		var labels = make(map[string]string, len(columns))
 
 		if err := rows.Scan(valuePtrs...); err != nil {
-			log.Fatalf("не вышло получить значения метрики %s: %v", q.Name, err)
+			logger.Error(fmt.Sprintf("не вышло получить значения метрики %s: %v", q.Name, err))
 		}
 
 		for i, col := range columns {
@@ -98,7 +110,7 @@ func UpdateMetrics(m *MetricCache, q scanqueries.Query, rows *sql.Rows) {
 
 			labels[col] = fmt.Sprintf("%v", values[i])
 		}
-		m.Store(q.Name, labels, value)
+		mc.Store(q.Name, labels, value)
 	}
 }
 
